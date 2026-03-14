@@ -28,14 +28,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Extract metadata
         id: meta
         run: |
-          IMAGE=ghcr.io/${{ github.repository_owner }}/demo-app
-          TAG=${GITHUB_SHA::7}
-          echo "image=$IMAGE" >> $GITHUB_OUTPUT
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
+            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            IMAGE=ghcr.io/$OWNER/demo-app
+            TAG=${GITHUB_SHA::7}
+
+            echo "image=$IMAGE" >> $GITHUB_OUTPUT
+            echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
