@@ -100,7 +100,7 @@ jobs:
       tag: ${{ steps.meta.outputs.tag }}
 
     steps:
-      - name: Checkout
+      - name: Checkout application repo
         uses: actions/checkout@v4
 
       - name: Run tests
@@ -126,7 +126,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract image metadata
         id: meta
         run: |
           IMAGE=ghcr.io/${{ steps.owner.outputs.owner }}/demo-app
@@ -140,3 +140,30 @@ jobs:
             --platform linux/amd64,linux/arm64 \
             -t ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }} \
             --push .
+
+  update-manifests:
+    needs: build-test-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout manifests repo
+        uses: actions/checkout@v4
+        with:
+          repository: jitenpalaparthi/demo-app-manifests
+          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          path: manifests
+
+      - name: Update deployment image tag
+        run: |
+          sed -i 's|image: .*|image: '${{ needs.build-test-push.outputs.image }}':'${{ needs.build-test-push.outputs.tag }}'|' manifests/base/deployment.yaml
+          echo "Updated deployment.yaml:"
+          cat manifests/base/deployment.yaml
+
+      - name: Commit and push manifests
+        run: |
+          cd manifests
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add base/deployment.yaml
+          git commit -m "Update demo-app image to ${{ needs.build-test-push.outputs.tag }}" || echo "No changes to commit"
+          git push
