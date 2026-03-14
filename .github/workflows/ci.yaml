@@ -1,9 +1,8 @@
-name: CI
+name: CI-CD
 
 on:
   push:
-    branches: [ "main" ]
-  pull_request:
+    branches: ["main"]
 
 permissions:
   contents: write
@@ -13,6 +12,10 @@ jobs:
   build-test-push:
     runs-on: ubuntu-latest
 
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+      tag: ${{ steps.meta.outputs.tag }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -20,7 +23,12 @@ jobs:
       - name: Run tests
         run: |
           echo "Add real tests here"
-          ls -la
+
+      - name: Convert owner to lowercase
+        id: owner
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "owner=$OWNER" >> $GITHUB_OUTPUT
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -28,15 +36,15 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Extract metadata
         id: meta
         run: |
-            OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
-            IMAGE=ghcr.io/$OWNER/demo-app
-            TAG=${GITHUB_SHA::7}
+          IMAGE=ghcr.io/${{ steps.owner.outputs.owner }}/demo-app
+          TAG=${GITHUB_SHA::7}
 
-            echo "image=$IMAGE" >> $GITHUB_OUTPUT
-            echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "image=$IMAGE" >> $GITHUB_OUTPUT
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Build image
         run: |
@@ -45,3 +53,30 @@ jobs:
       - name: Push image
         run: |
           docker push ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+
+  update-manifests:
+    needs: build-test-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout deployment repo
+        uses: actions/checkout@v4
+        with:
+          repository: jitenpalaparthi/demo-app-manifests
+          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          path: manifests
+
+      - name: Update image tag
+        run: |
+          sed -i 's|image: .*|image: '${{ needs.build-test-push.outputs.image }}':'${{ needs.build-test-push.outputs.tag }}'|' manifests/base/deployment.yaml
+          cat manifests/base/deployment.yaml
+
+      - name: Commit and push
+        run: |
+          cd manifests
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+
+          git add .
+          git commit -m "Update demo-app image to ${{ needs.build-test-push.outputs.tag }}" || echo "No changes"
+          git push
